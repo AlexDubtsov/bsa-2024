@@ -1,12 +1,19 @@
 package helpers
 
 type Transaction struct {
-	ID        string
-	Amount    float64
-	Spent     bool
-	CreatedAt string
+	ID        string  `json:"id"`
+	Amount    float64 `json:"amount"`
+	Spent     bool    `json:"spent"`
+	CreatedAt string  `json:"created"`
 }
 
 type Wallet struct {
-	UnspentTransactions []Transaction
+	AllTransactions []Transaction `json:"transactions"`
+}
+
+type RateAPI struct {
+	Symbol     string `json:"symbol"`
+	Value      string `json:"value"`
+	Sources    int    `json:"sources"`
+	Updated_at string `json:"updated_at"`
 }
