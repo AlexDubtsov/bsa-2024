@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"time"
 )
 
 func CalcBalance() float64 {
+	var precision float64 = 0.00001 // Precision in calculating balance for skipping precision errors of float64
 	var result float64
 
 	// Initialize the database connection
@@ -33,7 +35,7 @@ func CalcBalance() float64 {
 			fmt.Println("Error", err.Error())
 			os.Exit(1)
 		}
-		result += transaction.Amount
+		result += math.Round(transaction.Amount/precision) * precision
 	}
 
 	// Defer the closing of the database connection
@@ -42,8 +44,8 @@ func CalcBalance() float64 {
 	return result
 }
 
-func DBreadAndWrite(RequestedAmount float64) error {
-	// Generating new ID
+func DBreadAndWrite(Amount float64, supply bool) error {
+	// Generating set of newIDs
 	newId, err := randHexStr()
 	if err != nil {
 		fmt.Println("Error creating random strings:", err)
@@ -51,7 +53,7 @@ func DBreadAndWrite(RequestedAmount float64) error {
 	}
 
 	// Starting Amount below 0
-	RemainingAmount := RequestedAmount * (-1)
+	RemainingAmount := Amount * (-1)
 	// Continue to add amount?
 	addMoreAmount := true
 
@@ -65,6 +67,8 @@ func DBreadAndWrite(RequestedAmount float64) error {
 	}
 	defer tx.Rollback()
 
+	// ### TO FIX THIS: in case of many DB records not to load all records? ###
+
 	// Query the database to get all transactions
 	records, err := tx.Query("SELECT ID, AMOUNT, SPENT, CREATED FROM TRANSACTIONS")
 	if err != nil {
@@ -72,7 +76,7 @@ func DBreadAndWrite(RequestedAmount float64) error {
 		return err
 	}
 
-	// Iterate through the records, check if ID is unique and update the SPENT column
+	// Iterate through the records, check if ID is unique and update the SPENT column (if !supply)
 	for records.Next() {
 		var record Transaction
 		err := records.Scan(&record.ID, &record.Amount, &record.Spent, &record.CreatedAt)
@@ -81,20 +85,24 @@ func DBreadAndWrite(RequestedAmount float64) error {
 			continue
 		}
 
-		if record.Spent == 0 && addMoreAmount {
-			// Update the SPENT column
-			_, err = tx.Exec("UPDATE TRANSACTIONS SET SPENT = 1 WHERE ID = ?", record.ID)
-			if err != nil {
-				fmt.Println("Error updating record:", err.Error())
+		// If not to supply, but REQUEST funds
+		if !supply {
+			if record.Spent == 0 && addMoreAmount { // If current DB record is not spent and all previous have not covered requested amount
+				// Update the SPENT column
+				_, err = tx.Exec("UPDATE TRANSACTIONS SET SPENT = 1 WHERE ID = ?", record.ID)
+				if err != nil {
+					fmt.Println("Error updating record:", err.Error())
+				}
+
+				// Update the remaining amount
+				RemainingAmount += record.Amount
 			}
-
-			// Update the remaining amount
-			RemainingAmount += record.Amount
-		}
-
-		// Stop on Remaining Amount finish
-		if RemainingAmount >= 0 {
-			addMoreAmount = false
+			// Stop on Remaining Amount is positive
+			if RemainingAmount >= 0 {
+				addMoreAmount = false
+			}
+		} else { // If SUPPLY
+			RemainingAmount = Amount
 		}
 
 		// If newID is same as name of record => remove newID from list of available IDs
@@ -110,14 +118,15 @@ func DBreadAndWrite(RequestedAmount float64) error {
 	// Convert time variable to string using Format method
 	created := now.Format("2006-01-02 15:04:05")
 
+	// Insert record to DB
 	err = DBInsert(tx, newId[0], RemainingAmount, 0, created)
-
 	if err != nil {
 		return err
 	}
 
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
+	// Commit the DB transaction
+	err = tx.Commit()
+	if err != nil {
 		return err
 	}
 

@@ -25,3 +25,7 @@ type RateApiAllRecords struct {
 type CreateTransferRequest struct {
 	RequestedAmount string `json:"requested_amount"`
 }
+
+type CreateSupplyRequest struct {
+	SuppliedAmount string `json:"supplied_amount"`
+}
