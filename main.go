@@ -10,11 +10,10 @@ import (
 )
 
 func main() {
-	// Create DB if not exist
-	helpers.DBinit()
-	helpers.DBcreate()
-	// Scheduled close connection to DB
-	defer helpers.DB.Close()
+	// Create DB (in case of absence)
+	if helpers.DB == nil {
+		helpers.DBcreate()
+	}
 
 	router := gin.Default()
 	// Endpoint for fetching all transactions
@@ -34,10 +33,8 @@ func getTransactions(c *gin.Context) {
 		AllTransactions: []helpers.Transaction{},
 	}
 
-	// Open DB connection
-	helpers.DBinit()
-	// Scheduled close connection to DB
-	defer helpers.DB.Close()
+	// Initialize the database connection
+	helpers.DBopen()
 
 	// Query the database to get all transactions
 	records, err := helpers.DB.Query("SELECT ID, AMOUNT, SPENT, CREATED FROM TRANSACTIONS")
@@ -46,6 +43,9 @@ func getTransactions(c *gin.Context) {
 		return
 	}
 	defer records.Close()
+
+	// Defer the closing of the database connection
+	defer helpers.DB.Close()
 
 	// Iterate over the records; Add each record to Wallet
 	for records.Next() {
@@ -58,79 +58,55 @@ func getTransactions(c *gin.Context) {
 		wallet.AllTransactions = append(wallet.AllTransactions, transaction)
 	}
 
-	// Check for errors during iteration
-	if err := records.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error getTransactions3": err.Error()})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{"transactions": wallet.AllTransactions})
 }
 
 // getBalance = handler to get current balance in BTC and EUR
 func getBalance(c *gin.Context) {
 	currencyPair := "BTC/EUR"
-	var currencyRateStr string
-	var currencyRateFloat float64
-	var balBTC float64
-	var balEur float64
+	urlRateAPI := "http://api-cryptopia.adca.sh/v1/prices/ticker"
 
-	// Open external API
-	urlRate := "http://api-cryptopia.adca.sh/v1/prices/ticker"
-	var fetchedStruct struct {
-		Data []helpers.RateAPI `json:"data"`
-	}
-	err := helpers.GetJson(urlRate, &fetchedStruct)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error getBalance1": err.Error()})
-		return
-	}
+	balBTC := helpers.CalcBalance()
 
-	// Currency pair rate choice
-	for _, word := range fetchedStruct.Data {
-		if word.Symbol == currencyPair {
-			currencyRateStr = word.Value
-		}
-	}
-
-	// Convert string to float64
-	currencyRateFloat, err = strconv.ParseFloat(currencyRateStr, 64)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error getBalance2": err.Error()})
-		return
-	}
-
-	// Open DB connection
-	helpers.DBinit()
-	// Scheduled close connection to DB
-	defer helpers.DB.Close()
-	// Query the database to get not spent transactions
-	records, err := helpers.DB.Query("SELECT ID, AMOUNT, SPENT, CREATED FROM TRANSACTIONS where SPENT = ?", 0)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error getBalance1": err.Error()})
-		return
-	}
-	defer records.Close()
-
-	// Iterate over the records; Add each record to Wallet
-	for records.Next() {
-		var transaction helpers.Transaction
-		err := records.Scan(&transaction.ID, &transaction.Amount, &transaction.Spent, &transaction.CreatedAt)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error getTransactions2": err.Error()})
-			return
-		}
-		balBTC += transaction.Amount
-	}
-
-	balEur = balBTC * currencyRateFloat
+	balEur := balBTC * helpers.GetRate(urlRateAPI, currencyPair)
 
 	c.JSON(http.StatusOK, gin.H{"balance_BTC": balBTC, "balance_EUR": balEur})
 }
 
 // postTransfer = handler for creating a new transaction
 func postTransfer(c *gin.Context) {
-	// ...
+
+	var err error
+
+	// Struct init
+	var transferRequest helpers.CreateTransferRequest
+
+	// Trying to read JSON-request
+	err = c.BindJSON(&transferRequest)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error postTransfer1": err.Error()})
+		return
+	}
+
+	// Convert Requested Amount value string to float64
+	RequestedAmount, err := strconv.ParseFloat(transferRequest.RequestedAmount, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error postTransfer2": err.Error()})
+		return
+	}
+
+	// Check if enough not spent amount available
+	if RequestedAmount > helpers.CalcBalance() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Not enough balance for the transfer"})
+		return
+	}
+
+	// Write changes to DB
+	err = helpers.DBreadAndWrite(RequestedAmount)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error postTransfer3": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Transfer created successfully"})
 }

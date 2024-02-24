@@ -10,10 +10,9 @@ import (
 
 var DB *sql.DB
 
-func DBinit() {
+// Initialize the database connection
+func DBopen() {
 	var err error
-
-	// Initialize the database connection
 	DB, err = sql.Open("sqlite3", "./database.db")
 	if err != nil {
 		fmt.Println("Error opening database:", err)
@@ -22,6 +21,10 @@ func DBinit() {
 }
 
 func DBcreate() {
+
+	// Initialize the database connection
+	DBopen()
+
 	// Create sql table if it does not exist
 	usersTable, err := DB.Prepare(`
     CREATE TABLE if not exists TRANSACTIONS(
@@ -35,4 +38,7 @@ func DBcreate() {
 		log.Fatal(err)
 	}
 	usersTable.Exec()
+
+	// Defer the closing of the database connection
+	defer DB.Close()
 }
