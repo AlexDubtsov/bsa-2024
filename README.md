@@ -14,7 +14,7 @@ The programming language used is [Go](https://go.dev/).
 
 ### Notes
 
-SQLite is used as Data Base.
+SQLite is used as Data Base.<br>
 To install Data Base Driver use command:
 
 ```console
@@ -23,7 +23,7 @@ go get github.com/mattn/go-sqlite3
 
 Gin Web Framework is used for processing HTTP requests.
 
-- [gin-gonic](https://github.com/gin-gonic/gin)
+- [gin-gonic](https://github.com/gin-gonic/gin)<br>
 To install Framework use command:
 
 ```console
